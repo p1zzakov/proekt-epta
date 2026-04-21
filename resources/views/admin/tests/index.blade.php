@@ -134,7 +134,11 @@
                 <input id="viewers-channel" type="text" placeholder="Канал (напр. kunay0)"
                     class="flex-1 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm border border-gray-600 focus:border-yellow-500 focus:outline-none">
                 <input id="viewers-count" type="number" placeholder="Кол-во" min="1" max="500" value="50"
-                    class="w-28 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm border border-gray-600 focus:border-yellow-500 focus:outline-none">
+                    class="w-28 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm border border-gray-600 focus:border-yellow-500 focus:outline-none"
+                    title="Сколько зрителей набрать">
+                <input id="viewers-rate" type="number" placeholder="в мин" min="1" max="60" value="7"
+                    class="w-24 bg-gray-700 text-white rounded-lg px-4 py-2 text-sm border border-gray-600 focus:border-yellow-500 focus:outline-none"
+                    title="Сколько зрителей добавлять в минуту">
                 <button onclick="startViewers()" id="viewers-start-btn"
                     class="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg text-sm font-medium transition">
                     ▶ Запустить
@@ -711,7 +715,8 @@ async function startViewers() {
     await fetch('{{ route("admin.tests.viewers.start") }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
-        body: JSON.stringify({channel: ch, count: parseInt(count)})
+        const rate  = document.getElementById('viewers-rate').value;
+    body: JSON.stringify({channel: ch, count: parseInt(count), rate: parseInt(rate)})
     });
 
     // Поллинг статистики каждые 5 сек

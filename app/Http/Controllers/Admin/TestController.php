@@ -279,6 +279,7 @@ class TestController extends Controller
     {
         $channel = $request->input('channel');
         $count   = (int) $request->input('count', 50);
+        $rate    = (int) $request->input('rate', 7); // зрителей в минуту
 
         if (!$channel) return response()->json(['error' => 'Канал не указан'], 422);
 
@@ -287,7 +288,7 @@ class TestController extends Controller
         sleep(1);
 
         $logFile = "/tmp/viewer_bot_{$channel}.log";
-        $cmd = "nohup python3 /opt/viewer_bot.py {$channel} {$count} > {$logFile} 2>&1 &";
+        $cmd = "nohup python3 /opt/viewer_bot.py {$channel} {$count} {$rate} > {$logFile} 2>&1 &";
         exec($cmd);
 
         return response()->json(['status' => 'started', 'channel' => $channel, 'count' => $count]);
