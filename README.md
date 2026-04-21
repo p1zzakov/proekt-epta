@@ -1,66 +1,234 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# TwitchBoost
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+**Сервис автоматизации чата для стриминга**
 
-## About Laravel
+`Laravel 10` • `PostgreSQL` • `Redis` • `Docker`
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 🤔 Что это такое?
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+TwitchBoost — это серверное приложение, которое автоматически пишет сообщения в чат стрима от имени виртуальных ботов. Каждый бот — это отдельный персонаж со своим характером, темами для общения и поведением.
 
-## Learning Laravel
+Например: идёт стрим по Counter-Strike — система сама выбирает бота, который знает про CS, и он пишет что-то в чат. Это создаёт активность и делает трансляцию более живой.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+---
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+## 📁 Структура проекта
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+```
+proekt-epta/
+├── app/                  # Laravel-приложение (весь PHP-код)
+├── Dockerfile            # Инструкция для сборки контейнера с PHP
+├── docker-compose.yml    # Запускает nginx, php, postgres, redis
+└── _nginx.conf           # Настройки веб-сервера
+```
 
-## Laravel Sponsors
+### Внутри `app/`
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+| Папка / файл              | Что делает                                      |
+|---------------------------|-------------------------------------------------|
+| `app/Models/`             | Модели — описание данных. `Bot.php` = что такое бот |
+| `app/Services/`           | Логика. `BotSelector.php` = как выбрать бота    |
+| `app/Jobs/`               | Фоновые задачи. `TestQueue.php` = тест очереди  |
+| `app/Http/`               | Контроллеры и middleware                        |
+| `database/migrations/`    | Скрипты создания таблиц в базе данных           |
+| `routes/api.php`          | API-маршруты                                    |
+| `config/`                 | Настройки БД, кэша, очереди и т.д.             |
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+## 🤖 Как работает система ботов?
 
-## Contributing
+### Модель Bot (`app/Models/Bot.php`)
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Каждый бот в базе данных — это строка со следующими полями:
 
-## Code of Conduct
+| Поле            | Описание                                              |
+|-----------------|-------------------------------------------------------|
+| `name`          | Имя бота                                              |
+| `style`         | Стиль общения — например «дерзкий» или «весёлый»      |
+| `knowledge`     | Темы которые он знает — список слов в формате JSON    |
+| `toxicity`      | Токсичность: от 0 (добрый) до 1 (грубый)             |
+| `verbosity`     | Разговорчивость: вероятность ответа (0.5 = 50%)       |
+| `weight`        | Вес: чем больше, тем чаще выбирается этот бот         |
+| `cooldown_until`| Время до которого бот на паузе                        |
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### Сервис BotSelector (`app/Services/BotSelector.php`)
 
-## Security Vulnerabilities
+«Мозг» системы. Алгоритм выбора бота:
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+1. Загружает всех ботов из базы данных
+2. Убирает ботов на перезарядке (cooldown)
+3. Бросает кубик — пройдёт ли проверку на разговорчивость (verbosity)
+4. Проверяет — знает ли бот тему стрима (по ключевым словам)
+5. Выбирает победителя случайно, но с учётом веса (weight)
+6. Ставит боту паузу 30–120 секунд
 
-## License
+> 💡 Если нет подходящих по теме ботов — выбирается любой доступный. Если все на паузе — возвращается `null`.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+---
+
+## 🛠 Технологии
+
+| Технология      | Версия  | Зачем                              |
+|-----------------|---------|------------------------------------|
+| PHP             | 8.3     | Основной язык программирования     |
+| Laravel         | 10      | Фреймворк — скелет приложения      |
+| PostgreSQL      | 15      | База данных                        |
+| Redis           | 7       | Кэш и очередь задач                |
+| Nginx           | alpine  | Веб-сервер                         |
+| Docker          | latest  | Контейнеры                         |
+| Laravel Sanctum | 3.3     | Авторизация через токены           |
+
+---
+
+## 🚀 Установка и запуск
+
+> Для запуска нужен только **Docker**. Ничего другого устанавливать не надо.
+
+### 1. Клонировать репозиторий
+
+```bash
+git clone https://github.com/p1zzakov/proekt-epta.git
+cd proekt-epta
+```
+
+### 2. Создать файл настроек
+
+```bash
+cp app/.env.example app/.env
+```
+
+Открой `app/.env` и замени следующие строки:
+
+```env
+DB_CONNECTION=pgsql
+DB_HOST=postgres
+DB_PORT=5432
+DB_DATABASE=twitchboost
+DB_USERNAME=tbuser
+DB_PASSWORD=tbpass
+
+QUEUE_CONNECTION=redis
+REDIS_HOST=redis
+```
+
+### 3. Запустить Docker
+
+```bash
+docker-compose up -d --build
+```
+
+Запустятся 4 контейнера: nginx, php, postgres, redis. При первом запуске подождите 1–2 минуты.
+
+### 4. Установить зависимости
+
+```bash
+docker exec tb_php composer install
+```
+
+### 5. Сгенерировать ключ приложения
+
+```bash
+docker exec tb_php php artisan key:generate
+```
+
+### 6. Создать таблицы в базе данных
+
+```bash
+docker exec tb_php php artisan migrate
+```
+
+### 7. Готово!
+
+Открой в браузере: **http://localhost**
+
+---
+
+## 🐳 Контейнеры Docker
+
+| Контейнер     | Описание                                  |
+|---------------|-------------------------------------------|
+| `tb_nginx`    | Веб-сервер. Принимает запросы на порту 80 |
+| `tb_php`      | PHP-приложение. Выполняет код Laravel     |
+| `tb_postgres` | База данных                               |
+| `tb_redis`    | Кэш и очередь                             |
+
+> 💡 Данные PostgreSQL сохраняются в Docker Volume `pgdata` — не пропадут при перезапуске.
+
+---
+
+## 🗄 База данных
+
+### Таблицы
+
+| Таблица                  | Описание                          |
+|--------------------------|-----------------------------------|
+| `users`                  | Пользователи системы              |
+| `bots`                   | Боты — главная таблица проекта    |
+| `jobs`                   | Очередь фоновых задач             |
+| `failed_jobs`            | Упавшие задачи из очереди         |
+| `personal_access_tokens` | Токены авторизации (Sanctum)      |
+| `password_reset_tokens`  | Токены сброса пароля              |
+
+### Структура таблицы `bots`
+
+| Поле               | Тип                  | Описание                              |
+|--------------------|----------------------|---------------------------------------|
+| `id`               | bigint               | Уникальный ID                         |
+| `name`             | string               | Имя бота                              |
+| `style`            | string (nullable)    | Стиль общения                         |
+| `knowledge`        | JSON (nullable)      | Список тем                            |
+| `toxicity`         | float                | Токсичность: 0.0 – 1.0               |
+| `verbosity`        | float                | Активность: 0.0 – 1.0 (по умолч. 0.5)|
+| `weight`           | integer              | Вес при выборе (по умолч. 10)         |
+| `cooldown_until`   | timestamp (nullable) | До какого времени бот на паузе        |
+| `created_at`       | timestamp            | Время создания                        |
+| `updated_at`       | timestamp            | Время обновления                      |
+
+---
+
+## 💻 Полезные команды
+
+### Контейнеры
+
+```bash
+docker-compose up -d        # Запустить все контейнеры
+docker-compose down         # Остановить все контейнеры
+docker-compose ps           # Статус контейнеров
+docker-compose logs php     # Логи PHP-контейнера
+```
+
+### Laravel
+
+```bash
+docker exec tb_php php artisan migrate              # Применить миграции
+docker exec tb_php php artisan migrate:rollback     # Откатить последнюю миграцию
+docker exec tb_php php artisan tinker               # Интерактивная консоль
+docker exec tb_php php artisan queue:work           # Запустить обработчик очереди
+docker exec tb_php php artisan make:model X         # Создать модель
+docker exec tb_php php artisan make:controller X    # Создать контроллер
+```
+
+---
+
+## 🔧 TODO — что стоит доделать
+
+- [ ] Исправить `.env.example` — в нём стоит MySQL, а проект использует PostgreSQL
+- [ ] Исправить `QUEUE_CONNECTION=sync` на `redis` в `.env.example`
+- [ ] Добавить контроллеры для CRUD операций с ботами
+- [ ] Написать реальную логику в `TestQueue.php` (сейчас просто пишет в лог)
+- [ ] Добавить сидеры с тестовыми ботами
+- [ ] Заполнить `routes/api.php` маршрутами для ботов
+- [ ] Написать тесты
+
+---
+
+## 🌐 Домен и сервер
+
+В `_nginx.conf` прописаны:
+- `viewlab.top` — основной домен
+- `95.56.246.133` — IP сервера
+
+> Для локальной разработки это не важно — приложение откроется на `http://localhost`

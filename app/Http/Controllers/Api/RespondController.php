@@ -12,17 +12,17 @@ use Illuminate\Http\Request;
 class RespondController extends Controller
 {
     public function __construct(
-        private BotSelector     $selector,
+        private BotSelector       $selector,
         private ResponseGenerator $generator,
-        private ContextManager  $context,
+        private ContextManager    $context,
     ) {}
 
     /**
      * POST /api/respond
      *
      * {
-     *   "channel":      "streamer_login",   — обязательно
-     *   "text":         "ребят норм билд?", — обязательно
+     *   "channel":      "streamer_login",
+     *   "text":         "ребят норм билд?",
      *   "game":         "Dota 2",           — опционально
      *   "stream_title": "Рейтинг гринд"     — опционально
      * }
@@ -60,11 +60,41 @@ class RespondController extends Controller
             ]);
         }
 
-        // 4. Берём последние сообщения из контекста (кроме только что добавленного)
-        $history = $this->context->getContext($channel, 8);
+        // 4. Берём контекст из ContextManager и конвертируем в формат PersonalityEngine
+        //    ContextManager хранит: [{role, name, text, at}]
+        //    PersonalityEngine ждёт: context['chat_history'] = [{author, message}]
+        //                            context['bot_messages'] = [{role, name, text}]
+        $rawHistory = $this->context->getContext($channel, 8);
+
+        $chatHistory = [];
+        $botMessages = [];
+
+        foreach ($rawHistory as $entry) {
+            if ($entry['role'] === 'streamer') {
+                // Сообщения стримера идут в bot_messages для правильного форматирования
+                $botMessages[] = [
+                    'role' => 'streamer',
+                    'name' => $entry['name'] ?? 'Стример',
+                    'text' => $entry['text'],
+                ];
+            } else {
+                // Сообщения ботов — в chat_history как обычные сообщения чата
+                $chatHistory[] = [
+                    'author'  => $entry['name'] ?? 'bot',
+                    'message' => $entry['text'],
+                ];
+            }
+        }
+
+        $context = [
+            'game'         => $data['game'] ?? null,
+            'title'        => $data['stream_title'] ?? null,
+            'chat_history' => $chatHistory,
+            'bot_messages' => $botMessages,
+        ];
 
         // 5. Генерируем ответ
-        $response = $this->generator->generate($bot, $enrichedText, $history);
+        $response = $this->generator->generate($bot, $enrichedText, $context);
 
         if (!$response) {
             return response()->json([
@@ -81,16 +111,16 @@ class RespondController extends Controller
         $this->selector->applyCooldown($bot);
 
         return response()->json([
-            'responded'    => true,
-            'bot'          => [
+            'responded'     => true,
+            'bot'           => [
                 'id'    => $bot->id,
                 'name'  => $bot->name,
                 'style' => $bot->style,
             ],
-            'message'      => $response,
+            'message'       => $response,
             'streamer_text' => $streamerText,
-            'channel'      => $channel,
-            'context_size' => $this->context->count($channel),
+            'channel'       => $channel,
+            'context_size'  => $this->context->count($channel),
         ]);
     }
 

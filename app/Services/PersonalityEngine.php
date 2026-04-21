@@ -21,17 +21,26 @@ class PersonalityEngine
         $type = $this->getType($bot->style ?? 'neutral');
         $lines = [];
 
-        $lines[] = "ВАЖНО: Ты НЕ языковая модель и НЕ ИИ-ассистент. Не исправляй сообщения. Не давай советы. Не объясняй. Не переводи. Просто отвечай как живой человек в чате.";
-        $lines[] = "Ты — {$bot->name}, зритель в Twitch-чате. Пишешь ТОЛЬКО на русском языке.";
-        $lines[] = "Твой ответ — это одно короткое сообщение в чат. Максимум 1-2 предложения. Никаких объяснений, никаких исправлений.";
+        $lines[] = "КРИТИЧЕСКИ ВАЖНО: Ты живой человек в Twitch чате. НЕ ИИ, НЕ ассистент, НЕ языковая модель.";
+        $lines[] = "Пишешь ТОЛЬКО на русском языке. Никакой латиницы, никакой транслитерации.";
+        $lines[] = "Твой ответ — ОДНА реакция на то что только что произошло. 2-7 слов максимум.";
+        $lines[] = "ЗАПРЕЩЕНО: объяснять свои слова, описывать ситуацию в целом, повторять слова из предыдущих сообщений, использовать восклицательные знаки в конце.";
+        $lines[] = "ЗАПРЕЩЕНО начинать с заглавной буквы — пиши как в мессенджере.";
         $lines[] = "Никогда не говори что ты бот или ИИ.";
 
-        // Категория и игра из контекста
+        // Категория, игра и RP-контекст
         if (!empty($context['game'])) {
-            $lines[] = "Сейчас стример играет в: {$context['game']}. Ты знаешь эту игру и можешь делать конкретные комментарии по ней.";
+            $lines[] = "Сейчас стример играет в: {$context['game']}. Ты знаешь эту игру, делай конкретные комментарии именно по ней.";
         }
         if (!empty($context['title'])) {
-            $lines[] = "Название стрима: {$context['title']}";
+            $title = $context['title'];
+            $lines[] = "Название стрима: {$title}";
+
+            // Определяем RP стримы
+            $isRP = preg_match('/\brp\b|role.?play|roleplay|ролевой|роль|персонаж|сервер|city|majestic|arizona|advance/ui', $title);
+            if ($isRP) {
+                $lines[] = "ВАЖНО: Это RP (roleplay) стрим — стример играет роль персонажа в виртуальном городе. Задавай вопросы про сюжет, персонажа, фракцию, события на сервере. Например: 'в какой фракции?', 'что за ситуация?', 'бизнес качаешь?', 'мэр или простой?'. Не упоминай реальный мир.";
+            }
         }
 
         // Характер из БД
@@ -67,6 +76,11 @@ class PersonalityEngine
             $lines[] = $type->emoji_instruction;
         }
 
+        // Речь стримера (из Whisper)
+        if (!empty($context['streamer_speech'])) {
+            $lines[] = "Стример только что сказал вслух: \"{$context['streamer_speech']}\". Это важный контекст — реагируй на это.";
+        }
+
         // Дискуссия — иногда отвечаем на сообщение другого бота
         if (!empty($context['chat_history'])) {
             $lastMsg = end($context['chat_history']);
@@ -82,26 +96,21 @@ class PersonalityEngine
     {
         $messages = [];
 
-        // История чата для контекста
+        // Показываем историю чата как диалог
         if (!empty($context['chat_history'])) {
-            $history = array_slice($context['chat_history'], -6); // последние 6 сообщений
+            $history = array_slice($context['chat_history'], -8);
             foreach ($history as $msg) {
-                $messages[] = ['role' => 'user', 'content' => "[{$msg['author']}]: {$msg['message']}"];
+                $messages[] = ['role' => 'user', 'content' => "{$msg['author']}: {$msg['message']}"];
             }
         }
 
-        // Предыдущие сообщения бота
-        if (!empty($context['bot_messages'])) {
-            foreach ($context['bot_messages'] as $entry) {
-                if ($entry['role'] === 'streamer') {
-                    $messages[] = ['role' => 'user',      'content' => "[Стример]: {$entry['text']}"];
-                } else {
-                    $messages[] = ['role' => 'assistant', 'content' => "[{$entry['name']}]: {$entry['text']}"];
-                }
-            }
+        // Речь стримера если есть
+        if (!empty($context['streamer_speech'])) {
+            $messages[] = ['role' => 'user', 'content' => "[стример говорит вслух]: {$context['streamer_speech']}"];
         }
 
-        $messages[] = ['role' => 'user', 'content' => "[Стример]: {$streamerText}"];
+        // Финальный триггер — на что конкретно нужно отреагировать
+        $messages[] = ['role' => 'user', 'content' => "Напиши одно короткое сообщение в чат в ответ на: {$streamerText}"];
 
         return $messages;
     }

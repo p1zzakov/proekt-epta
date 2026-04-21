@@ -23,6 +23,9 @@ class Account extends Model
         'messages_today_date',
         'rate_limit',
         'note',
+        'proxy_id',
+        'phone_verified',
+        'type',
     ];
 
     protected $casts = [
@@ -30,15 +33,56 @@ class Account extends Model
         'last_used_at'         => 'datetime',
         'messages_today_date'  => 'date',
         'is_active'            => 'boolean',
+        'phone_verified'       => 'boolean',
     ];
 
-    // Скрываем токены из JSON по умолчанию
     protected $hidden = ['access_token', 'refresh_token'];
+
+    // ─────────────────────────────────────────
+    // Relations
+    // ─────────────────────────────────────────
 
     public function follows()
     {
         return $this->hasMany(AccountFollow::class);
     }
+
+    public function proxy()
+    {
+        return $this->belongsTo(Proxy::class);
+    }
+
+    // ─────────────────────────────────────────
+    // Scopes
+    // ─────────────────────────────────────────
+
+    /**
+     * Аккаунты готовые к работе: активны, статус available,
+     * и либо токен бессрочный, либо ещё не истёк.
+     *
+     * Исправлен баг: предыдущая версия использовала ->orWhere() на верхнем уровне,
+     * что ломало SQL когда к scope добавлялись другие условия (AND/OR путались).
+     */
+    public function scopeAvailable($query)
+    {
+        return $query
+            ->where('is_active', true)
+            ->where('status', 'available')
+            ->where(function ($q) {
+                $q->whereNull('token_expires_at')
+                  ->orWhere('token_expires_at', '>', now());
+            });
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true)
+                     ->whereNotIn('status', ['banned', 'invalid']);
+    }
+
+    // ─────────────────────────────────────────
+    // Helpers
+    // ─────────────────────────────────────────
 
     public function isFollowing(string $channel): bool
     {
@@ -52,38 +96,6 @@ class Account extends Model
             ['channel_id' => $channelId, 'followed_at' => now()]
         );
     }
-
-    public function proxy()
-    {
-        return $this->belongsTo(Proxy::class);
-    }
-
-    // ─────────────────────────────────────────
-    // Scopes
-    // ─────────────────────────────────────────
-
-    public function scopeAvailable($query)
-    {
-        return $query
-            ->where('is_active', true)
-            ->where('status', 'available')
-            ->whereNull('token_expires_at')
-            ->orWhere(function ($q) {
-                $q->where('is_active', true)
-                  ->where('status', 'available')
-                  ->where('token_expires_at', '>', now());
-            });
-    }
-
-    public function scopeActive($query)
-    {
-        return $query->where('is_active', true)
-                     ->whereNotIn('status', ['banned', 'invalid']);
-    }
-
-    // ─────────────────────────────────────────
-    // Helpers
-    // ─────────────────────────────────────────
 
     public function isTokenExpired(): bool
     {
@@ -128,7 +140,6 @@ class Account extends Model
     {
         $today = now()->toDateString();
 
-        // Сбрасываем счётчик если новый день
         if ($this->messages_today_date?->toDateString() !== $today) {
             $this->messages_today      = 0;
             $this->messages_today_date = $today;

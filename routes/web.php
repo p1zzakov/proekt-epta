@@ -1,4 +1,3 @@
-cat > /opt/twitch-boost/app/routes/web.php << 'PHPEOF'
 <?php
 
 use Illuminate\Support\Facades\Route;
@@ -25,7 +24,7 @@ Route::post('/admin/logout',[AuthController::class, 'logout'])->name('admin.logo
 Route::prefix('admin')->name('admin.')->middleware('admin.auth')->group(function () {
 
     // Dashboard
-    Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/', DashboardController::class)->name('dashboard');
 
     // Боты
     Route::get('/bots',           [BotController::class, 'index'])->name('bots.index');
@@ -44,9 +43,14 @@ Route::prefix('admin')->name('admin.')->middleware('admin.auth')->group(function
     Route::post('/accounts',                   [AccountController::class, 'store'])->name('accounts.store');
     Route::put('/accounts/{account}',          [AccountController::class, 'update'])->name('accounts.update');
     Route::delete('/accounts/{account}',       [AccountController::class, 'destroy'])->name('accounts.destroy');
-    Route::get('/accounts/import',             [AccountController::class, 'importForm'])->name('accounts.import');
-    Route::post('/accounts/import',            [AccountController::class, 'import'])->name('accounts.import.post');
-    Route::post('/accounts/{account}/toggle',  [AccountController::class, 'toggle'])->name('accounts.toggle');
+    Route::get('/accounts/import',                  [AccountController::class, 'importForm'])->name('accounts.import');
+    Route::post('/accounts/import',                 [AccountController::class, 'import'])->name('accounts.import.post');
+    Route::post('/accounts/bulk-check',             [AccountController::class, 'bulkCheck'])->name('accounts.bulk-check');
+    Route::post('/accounts/{account}/toggle',       [AccountController::class, 'toggle'])->name('accounts.toggle');
+    Route::post('/accounts/{account}/validate',     [AccountController::class, 'validateToken'])->name('accounts.validate');
+    Route::post('/accounts/{account}/check-chat',   [AccountController::class, 'checkChat'])->name('accounts.check-chat');
+    Route::post('/accounts/{account}/check-phone',  [AccountController::class, 'checkPhone'])->name('accounts.check-phone');
+    Route::post('/accounts/bulk-phone-check',        [AccountController::class, 'bulkPhoneCheck'])->name('accounts.bulk-phone-check');
 
     // Прокси
     Route::get('/proxies',              [ProxyController::class, 'index'])->name('proxies.index');
@@ -92,6 +96,14 @@ Route::prefix('admin')->name('admin.')->middleware('admin.auth')->group(function
         Route::post('/chat',         [TestController::class, 'chat'])->name('chat');
         Route::post('/follow-bots',  [TestController::class, 'followBots'])->name('follow');
         Route::get('/follow-status', [TestController::class, 'followStatus'])->name('follow.status');
+        Route::post('/bot-chat/start',   [TestController::class, 'botChatStart'])->name('bot-chat.start');
+        Route::post('/bot-chat/stop',    [TestController::class, 'botChatStop'])->name('bot-chat.stop');
+        Route::get('/bot-chat/log',      [TestController::class, 'botChatLog'])->name('bot-chat.log');
+        Route::get('/chat/live',         [TestController::class, 'chatLive'])->name('chat.live');
+        Route::post('/chat/send',        [TestController::class, 'chatSend'])->name('chat.send');
+        Route::post('/viewers/start',     [TestController::class, 'viewersStart'])->name('viewers.start');
+        Route::post('/viewers/stop',      [TestController::class, 'viewersStop'])->name('viewers.stop');
+        Route::get('/viewers/stats',      [TestController::class, 'viewersStats'])->name('viewers.stats');
     });
 });
 

@@ -19,7 +19,6 @@ class AccountController extends Controller
     {
         $query = Account::query();
 
-        // Поиск
         if ($search = $request->get('search')) {
             $query->where(function($q) use ($search) {
                 $q->where('username', 'like', "%{$search}%")
@@ -28,16 +27,32 @@ class AccountController extends Controller
             });
         }
 
-        // Фильтр по статусу
         if ($status = $request->get('status')) {
             $query->where('status', $status);
         }
 
-        // Сортировка
-        $sort      = in_array($request->get('sort'), ['username','messages_sent','messages_today','last_used_at','created_at'])
+        // Фильтр по типу
+        if ($type = $request->get('type')) {
+            $query->where('type', $type);
+        }
+
+        // Фильтр по телефону
+        if ($request->has('phone') && $request->get('phone') !== '') {
+            $query->where('phone_verified', (bool) $request->get('phone'));
+        }
+
+        $sort = in_array($request->get('sort'), ['username','messages_sent','messages_today','last_used_at','created_at'])
             ? $request->get('sort') : 'created_at';
-        $dir       = $request->get('dir') === 'asc' ? 'asc' : 'desc';
+        $dir  = $request->get('dir') === 'asc' ? 'asc' : 'desc';
         $query->orderBy($sort, $dir);
+
+        // Быстрый ответ для автообновления счётчиков
+        if ($request->header('X-Requested-With') === 'XMLHttpRequest' && $request->get('counts_only')) {
+            return response()->json([
+                'viewers'  => Account::where('type', 'viewer')->count(),
+                'chatbots' => Account::where('type', 'chatbot')->count(),
+            ]);
+        }
 
         $accounts = $query->paginate(25)->withQueryString();
 
@@ -66,7 +81,6 @@ class AccountController extends Controller
             'is_active'     => true,
         ]);
 
-        // Валидируем токен сразу
         $valid = $this->twitch->validateToken($account);
         if (!$valid) {
             $account->markInvalid();
@@ -83,6 +97,7 @@ class AccountController extends Controller
         $data = $request->validate([
             'access_token' => 'nullable|string',
             'note'         => 'nullable|string|max:255',
+            'type'         => 'nullable|in:viewer,chatbot',
         ]);
 
         if (!empty($data['access_token'])) {
@@ -99,6 +114,9 @@ class AccountController extends Controller
             }
         }
 
+        if (isset($data['type'])) {
+            $account->type = $data['type'];
+        }
         $account->note = $data['note'] ?? $account->note;
         $account->save();
 
@@ -115,7 +133,32 @@ class AccountController extends Controller
             ->with('success', "Аккаунт {$username} удалён!");
     }
 
-    // POST /admin/accounts/{id}/validate
+    // POST /admin/accounts/{account}/toggle
+    public function toggle(Account $account)
+    {
+        $account->is_active = !$account->is_active;
+        $account->status    = $account->is_active ? 'available' : 'invalid';
+        $account->save();
+
+        $state = $account->is_active ? 'активирован' : 'деактивирован';
+        return redirect()->route('admin.accounts.index')
+            ->with('success', "Аккаунт {$account->username} {$state}!");
+    }
+
+    // GET /admin/accounts/import — перенаправление на AccountImportController
+    public function importForm()
+    {
+        $availableProxies = \App\Models\Proxy::available()->count();
+        return view('admin.accounts.import', compact('availableProxies'));
+    }
+
+    // POST /admin/accounts/import
+    public function import(Request $request)
+    {
+        return app(\App\Http\Controllers\Admin\AccountImportController::class)->import($request);
+    }
+
+    // POST /admin/accounts/{account}/validate
     public function validateToken(Account $account)
     {
         $valid = $this->twitch->validateToken($account);
@@ -134,17 +177,6 @@ class AccountController extends Controller
         ]);
     }
 
-    // POST /admin/accounts/{id}/reset
-    public function reset(Account $account)
-    {
-        $account->is_active = true;
-        $account->status    = 'available';
-        $account->save();
-
-        return redirect()->route('admin.accounts.index')
-            ->with('success', "Статус аккаунта {$account->username} сброшен!");
-    }
-    // Проверить доступ к чату для одного аккаунта
     // POST /admin/accounts/{account}/check-chat
     public function checkChat(Request $request, Account $account)
     {
@@ -165,7 +197,59 @@ class AccountController extends Controller
         ]);
     }
 
-    // Массовая проверка всех аккаунтов
+    // POST /admin/accounts/{account}/check-phone
+    public function checkPhone(Request $request, Account $account)
+    {
+        $channel = $request->get('channel', $account->username);
+        $status  = $this->twitch->checkPhoneVerified($account, $channel);
+
+        if ($status === 'ok') {
+            $account->phone_verified = true;
+            $account->type = 'chatbot';
+            $account->save();
+        } elseif ($status === 'needs_phone') {
+            $account->phone_verified = false;
+            $account->type = 'viewer';
+            $account->save();
+        }
+
+        return response()->json([
+            'status'         => $status,
+            'phone_verified' => $account->fresh()->phone_verified,
+            'type'           => $account->fresh()->type,
+        ]);
+    }
+
+    // POST /admin/accounts/bulk-phone-check — массовая проверка телефонов
+    public function bulkPhoneCheck(Request $request)
+    {
+        $limit   = (int) $request->get('limit', 50);
+        $channel = $request->get('channel', 'surprise011');
+
+        $accounts = Account::where('status', 'available')
+            ->where('is_active', true)
+            ->inRandomOrder()
+            ->limit($limit)
+            ->get();
+
+        $results = ['ok' => 0, 'needs_phone' => 0, 'needs_follow' => 0, 'invalid_token' => 0, 'unknown' => 0];
+
+        foreach ($accounts as $account) {
+            $status = $this->twitch->checkPhoneVerified($account, $channel);
+            $results[$status] = ($results[$status] ?? 0) + 1;
+            usleep(500000); // 0.5 сек между проверками
+        }
+
+        $chatbots = Account::where('type', 'chatbot')->count();
+        $viewers  = Account::where('type', 'viewer')->count();
+
+        return response()->json([
+            'results'  => $results,
+            'chatbots' => $chatbots,
+            'viewers'  => $viewers,
+        ]);
+    }
+
     // POST /admin/accounts/bulk-check
     public function bulkCheck(Request $request)
     {
@@ -174,7 +258,6 @@ class AccountController extends Controller
 
         $results = $this->twitch->bulkCheckAccounts($channel, $limit);
 
-        // Обновляем счётчик
         $verified = Account::where('phone_verified', true)->count();
 
         return response()->json([
@@ -182,5 +265,4 @@ class AccountController extends Controller
             'verified' => $verified,
         ]);
     }
-
 }

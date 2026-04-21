@@ -31,9 +31,30 @@
     </div>
 </div>
 
-{{-- Фильтры + кнопка --}}
+{{-- Вкладки типов --}}
+<div class="card mb-4" style="padding:8px 16px;">
+    <div style="display:flex;gap:8px;align-items:center;">
+        @foreach([''=>'🗂️ Все', 'viewer'=>'👁️ Зрители', 'chatbot'=>'💬 Чат-боты'] as $val => $label)
+            <a href="{{ route('admin.accounts.index', array_merge(request()->except('type','page'), $val ? ['type'=>$val] : [])) }}"
+               class="btn {{ request('type', '') === $val ? 'btn-primary' : 'btn-ghost' }}"
+               style="font-size:13px;">
+               {{ $label }}
+            </a>
+        @endforeach
+        <span style="color:var(--text-muted);font-size:11px;margin-left:8px;" id="type-counts">
+            Зрители: <strong id="cnt-viewers">{{ \App\Models\Account::where('type','viewer')->count() }}</strong>
+            &nbsp;|&nbsp;
+            Чат-боты: <strong id="cnt-chatbots">{{ \App\Models\Account::where('type','chatbot')->count() }}</strong>
+        </span>
+    </div>
+</div>
+
+{{-- Фильтры --}}
 <div class="card mb-6">
     <form method="GET" action="{{ route('admin.accounts.index') }}">
+        @if(request('type'))
+            <input type="hidden" name="type" value="{{ request('type') }}">
+        @endif
         <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
             <div style="flex:1;min-width:200px;">
                 <label>Поиск</label>
@@ -46,6 +67,14 @@
                     @foreach(['available'=>'✅ Доступен','busy'=>'⏳ Занят','cooldown'=>'⏱️ Cooldown','banned'=>'🚫 Забанен','invalid'=>'❌ Невалиден'] as $val => $label)
                         <option value="{{ $val }}" {{ request('status') === $val ? 'selected' : '' }}>{{ $label }}</option>
                     @endforeach
+                </select>
+            </div>
+            <div style="width:160px;">
+                <label>Телефон</label>
+                <select name="phone">
+                    <option value="">Все</option>
+                    <option value="1" {{ request('phone') === '1' ? 'selected' : '' }}>✅ Верифицирован</option>
+                    <option value="0" {{ request('phone') === '0' ? 'selected' : '' }}>❌ Не верифицирован</option>
                 </select>
             </div>
             <div style="width:180px;">
@@ -81,6 +110,9 @@
             <button class="btn btn-ghost" onclick="validateAll()" id="btn-validate">
                 🔄 Проверить все токены
             </button>
+            <button class="btn btn-ghost" onclick="checkAllPhones()" id="btn-check-phones">
+                📱 Проверить все телефоны
+            </button>
             <button class="btn btn-primary" onclick="openModal('modal-create')">+ Добавить</button>
         </div>
     </div>
@@ -90,13 +122,12 @@
             <thead>
                 <tr>
                     <th>Аккаунт</th>
-                    <th>Twitch ID</th>
+                    <th>Тип</th>
                     <th>Статус</th>
+                    <th>Телефон</th>
                     <th>Сегодня</th>
                     <th>Всего</th>
                     <th>Последний раз</th>
-                    <th>Токен</th>
-                    <th>Телефон</th>
                     <th>Заметка</th>
                     <th>Действия</th>
                 </tr>
@@ -106,30 +137,30 @@
                 <tr id="row-{{ $account->id }}">
                     <td>
                         <strong style="color:var(--text)">{{ $account->username }}</strong>
+                        <div style="color:var(--text-muted);font-size:10px;">{{ $account->twitch_id ?? '—' }}</div>
                     </td>
-                    <td style="color:var(--text-muted);font-size:11px;">
-                        {{ $account->twitch_id ?? '—' }}
+                    <td>
+                        @if($account->type === 'chatbot')
+                            <span class="badge badge-purple">💬 чат-бот</span>
+                        @else
+                            <span class="badge badge-yellow">👁️ зритель</span>
+                        @endif
                     </td>
                     <td>
                         @php
-                            $badges = [
-                                'available' => 'green',
-                                'busy'      => 'yellow',
-                                'cooldown'  => 'yellow',
-                                'banned'    => 'red',
-                                'invalid'   => 'red',
-                            ];
-                            $icons = [
-                                'available' => '✅',
-                                'busy'      => '⏳',
-                                'cooldown'  => '⏱️',
-                                'banned'    => '🚫',
-                                'invalid'   => '❌',
-                            ];
+                            $badges = ['available'=>'green','busy'=>'yellow','cooldown'=>'yellow','banned'=>'red','invalid'=>'red'];
+                            $icons  = ['available'=>'✅','busy'=>'⏳','cooldown'=>'⏱️','banned'=>'🚫','invalid'=>'❌'];
                         @endphp
                         <span class="badge badge-{{ $badges[$account->status] ?? 'purple' }}">
                             {{ $icons[$account->status] ?? '' }} {{ $account->status }}
                         </span>
+                    </td>
+                    <td id="phone-{{ $account->id }}">
+                        @if($account->phone_verified)
+                            <span class="badge badge-green">✅ да</span>
+                        @else
+                            <span class="badge badge-red">❌ нет</span>
+                        @endif
                     </td>
                     <td style="color:{{ $account->messages_today > 0 ? 'var(--green)' : 'var(--text-muted)' }}">
                         {{ $account->messages_today }}
@@ -138,29 +169,16 @@
                     <td style="color:var(--text-muted);font-size:11px;">
                         {{ $account->last_used_at ? $account->last_used_at->diffForHumans() : '—' }}
                     </td>
-                    <td>
-                        @if($account->token_expires_at)
-                            @if($account->isTokenExpired())
-                                <span class="badge badge-red">истёк</span>
-                            @else
-                                <span class="badge badge-green">ok</span>
-                            @endif
-                        @else
-                            <span style="color:var(--text-muted);font-size:11px;">∞</span>
-                        @endif
-                    </td>
-                    <td>
-                        @if($account->phone_verified)
-                            <span class="badge badge-green">✅ верифицирован</span>
-                        @else
-                            <span class="badge badge-red">❌ нет</span>
-                        @endif
-                    </td>
                     <td style="color:var(--text-muted);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                         {{ $account->note ?? '—' }}
                     </td>
                     <td>
-                        <div style="display:flex;gap:4px;">
+                        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                            {{-- Проверить телефон --}}
+                            <button class="btn btn-ghost" style="padding:4px 8px;font-size:10px;"
+                                onclick="checkPhone({{ $account->id }}, this)"
+                                title="Проверить телефон">📱</button>
+
                             {{-- Проверить токен --}}
                             <button class="btn btn-ghost" style="padding:4px 8px;font-size:10px;"
                                 onclick="validateToken({{ $account->id }}, this)"
@@ -168,15 +186,14 @@
 
                             {{-- Редактировать --}}
                             <button class="btn btn-ghost" style="padding:4px 8px;font-size:10px;"
-                                onclick="openEdit({{ $account->id }}, '{{ $account->username }}', '{{ addslashes($account->note ?? '') }}')"
+                                onclick="openEdit({{ $account->id }}, '{{ $account->username }}', '{{ addslashes($account->note ?? '') }}', '{{ $account->type }}')"
                                 title="Редактировать">✏️</button>
 
                             {{-- Сброс статуса --}}
-                            @if(in_array($account->status, ['busy', 'cooldown', 'banned', 'invalid']))
+                            @if(in_array($account->status, ['busy','cooldown','banned','invalid']))
                             <form method="POST" action="{{ route('admin.accounts.reset', $account) }}" style="margin:0">
                                 @csrf
-                                <button type="submit" class="btn btn-ghost" style="padding:4px 8px;font-size:10px;"
-                                    title="Сбросить статус">♻️</button>
+                                <button type="submit" class="btn btn-ghost" style="padding:4px 8px;font-size:10px;" title="Сбросить статус">♻️</button>
                             </form>
                             @endif
 
@@ -192,7 +209,7 @@
                 @empty
                 <tr>
                     <td colspan="9" style="text-align:center;color:var(--text-muted);padding:40px;">
-                        Нет аккаунтов — добавь первый!
+                        Нет аккаунтов
                     </td>
                 </tr>
                 @endforelse
@@ -212,7 +229,6 @@
             @else
                 <a href="{{ $accounts->previousPageUrl() }}&{{ http_build_query(request()->except('page')) }}" class="btn btn-ghost">← Назад</a>
             @endif
-
             @foreach($accounts->getUrlRange(max(1, $accounts->currentPage()-2), min($accounts->lastPage(), $accounts->currentPage()+2)) as $page => $url)
                 @if($page === $accounts->currentPage())
                     <span class="btn btn-primary" style="cursor:default;">{{ $page }}</span>
@@ -220,7 +236,6 @@
                     <a href="{{ $url }}" class="btn btn-ghost">{{ $page }}</a>
                 @endif
             @endforeach
-
             @if($accounts->hasMorePages())
                 <a href="{{ $accounts->nextPageUrl() }}&{{ http_build_query(request()->except('page')) }}" class="btn btn-ghost">Вперёд →</a>
             @else
@@ -244,13 +259,17 @@
             <div class="form-group">
                 <label>Access Token</label>
                 <input type="text" name="access_token" placeholder="oauth:xxxxxxxxxxxxxxxx" required>
-                <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">
-                    Получить на <a href="https://twitchapps.com/tmi/" target="_blank" style="color:var(--accent2);">twitchapps.com/tmi</a>
-                </div>
             </div>
             <div class="form-group">
                 <label>Refresh Token (опционально)</label>
                 <input type="text" name="refresh_token" placeholder="Для автообновления токена">
+            </div>
+            <div class="form-group">
+                <label>Тип аккаунта</label>
+                <select name="type">
+                    <option value="viewer">👁️ Зритель</option>
+                    <option value="chatbot">💬 Чат-бот</option>
+                </select>
             </div>
             <div class="form-group">
                 <label>Заметка</label>
@@ -275,6 +294,13 @@
                 <input type="text" id="edit-username" style="opacity:0.5" readonly>
             </div>
             <div class="form-group">
+                <label>Тип аккаунта</label>
+                <select name="type" id="edit-type">
+                    <option value="viewer">👁️ Зритель</option>
+                    <option value="chatbot">💬 Чат-бот</option>
+                </select>
+            </div>
+            <div class="form-group">
                 <label>Новый Access Token (оставь пустым если не меняешь)</label>
                 <input type="text" name="access_token" placeholder="oauth:xxxxxxxxxxxxxxxx">
             </div>
@@ -294,21 +320,89 @@
 
 @push('scripts')
 <script>
+const csrf = document.querySelector('meta[name=csrf-token]').content;
+
 function openModal(id) { document.getElementById(id).classList.add('open'); }
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
 document.querySelectorAll('.modal-overlay').forEach(o => {
     o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
 });
 
-function openEdit(id, username, note) {
+function openEdit(id, username, note, type) {
     const form = document.getElementById('edit-form');
     form.action = `/admin/accounts/${id}`;
     document.getElementById('edit-username').value = username;
     document.getElementById('edit-note').value = note;
+    document.getElementById('edit-type').value = type || 'viewer';
     openModal('modal-edit');
 }
 
-// Проверка одного токена
+// Проверка телефона — используем открытый канал surprise011
+async function checkPhone(id, btn) {
+    const original = btn.textContent;
+    btn.textContent = '⏳';
+    btn.disabled = true;
+
+    // surprise011 — открытый канал без followers-only, подходит для проверки
+    const channel = 'surprise011';
+
+    try {
+        const r = await fetch(`/admin/accounts/${id}/check-phone`, {
+            method: 'POST',
+            headers: {'X-CSRF-TOKEN': csrf, 'Content-Type': 'application/json'},
+            body: JSON.stringify({channel})
+        });
+        const d = await r.json();
+
+        const phoneEl = document.getElementById(`phone-${id}`);
+        if (d.phone_verified) {
+            phoneEl.innerHTML = '<span class="badge badge-green">✅ да</span>';
+            btn.title = 'Телефон верифицирован';
+        } else {
+            const label = d.status === 'needs_follow' ? '👤 подписка' : '❌ нет';
+            phoneEl.innerHTML = `<span class="badge badge-red">${label}</span>`;
+            btn.title = d.status;
+        }
+
+        btn.textContent = d.phone_verified ? '✅' : '❌';
+        setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 2000);
+    } catch(e) {
+        btn.textContent = original;
+        btn.disabled = false;
+    }
+}
+
+// Массовая проверка телефонов через серверный эндпоинт
+async function checkAllPhones() {
+    const btn = document.getElementById('btn-check-phones');
+    const limit = prompt('Сколько аккаунтов проверить? (по 0.5 сек каждый)', '50');
+    if (!limit) return;
+
+    btn.textContent = `⏳ Проверяем ${limit} аккаунтов...`;
+    btn.disabled = true;
+
+    try {
+        const r = await fetch('{{ route("admin.accounts.bulk-phone-check") }}', {
+            method: 'POST',
+            headers: {'X-CSRF-TOKEN': csrf, 'Content-Type': 'application/json'},
+            body: JSON.stringify({limit: parseInt(limit), channel: 'surprise011'})
+        });
+        const d = await r.json();
+
+        btn.textContent = `✅ Готово! ✅${d.results.ok || 0} 📵${d.results.needs_phone || 0}`;
+        // Обновляем счётчики вкладок
+        setTimeout(() => {
+            btn.textContent = '📱 Проверить все телефоны';
+            btn.disabled = false;
+            location.reload();
+        }, 3000);
+    } catch(e) {
+        btn.textContent = '📱 Проверить все телефоны';
+        btn.disabled = false;
+    }
+}
+
+// Проверка токена
 async function validateToken(id, btn) {
     const original = btn.textContent;
     btn.textContent = '⏳';
@@ -317,10 +411,7 @@ async function validateToken(id, btn) {
     try {
         const r = await fetch(`/admin/accounts/${id}/validate`, {
             method: 'POST',
-            headers: {
-                'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content,
-                'Content-Type': 'application/json'
-            }
+            headers: {'X-CSRF-TOKEN': csrf, 'Content-Type': 'application/json'}
         });
         const d = await r.json();
 
@@ -362,5 +453,20 @@ async function validateAll() {
 @if($errors->any())
     openModal('modal-create');
 @endif
+
+// Автообновление счётчиков зрители/чат-боты каждые 10 сек
+async function refreshTypeCounts() {
+    try {
+        const r = await fetch('{{ route("admin.accounts.index") }}?counts_only=1', {
+            headers: {'X-Requested-With': 'XMLHttpRequest'}
+        });
+        const d = await r.json();
+        if (d.viewers !== undefined) {
+            document.getElementById('cnt-viewers').textContent  = d.viewers;
+            document.getElementById('cnt-chatbots').textContent = d.chatbots;
+        }
+    } catch(e) {}
+}
+setInterval(refreshTypeCounts, 10000);
 </script>
 @endpush
