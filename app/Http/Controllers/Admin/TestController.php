@@ -283,13 +283,15 @@ class TestController extends Controller
 
         if (!$channel) return response()->json(['error' => 'Канал не указан'], 422);
 
-        // Останавливаем предыдущий если есть
-        exec("pkill -f 'viewer_bot.py {$channel}' 2>/dev/null");
-        sleep(1);
-
-        $logFile = "/tmp/viewer_bot_{$channel}.log";
-        $cmd = "nohup python3 /opt/viewer_bot.py {$channel} {$count} {$rate} > {$logFile} 2>&1 &";
-        exec($cmd);
+        // Отправляем команду viewer_manager через Redis (он работает на хосте)
+        $redis = new \Redis();
+        $redis->connect('127.0.0.1', 6379);
+        $redis->rpush('viewer_commands', json_encode([
+            'action'  => 'start',
+            'channel' => $channel,
+            'count'   => $count,
+            'rate'    => $rate,
+        ]));
 
         return response()->json(['status' => 'started', 'channel' => $channel, 'count' => $count]);
     }
@@ -298,13 +300,14 @@ class TestController extends Controller
     public function viewersStop(Request $request)
     {
         $channel = $request->input('channel');
-        exec("pkill -f 'viewer_bot.py {$channel}' 2>/dev/null");
-
-        // Чистим Redis
+        // Отправляем команду остановки через Redis
         try {
             $redis = new \Redis();
             $redis->connect('127.0.0.1', 6379);
-            $redis->del("viewer_bot:{$channel}");
+            $redis->rpush('viewer_commands', json_encode([
+                'action'  => 'stop',
+                'channel' => $channel,
+            ]));
         } catch (\Exception $e) {}
 
         return response()->json(['status' => 'stopped']);

@@ -712,11 +712,11 @@ async function startViewers() {
     setViewersStatus(true, `Запускаем ${count} зрителей...`);
     addViewersLog(`🚀 Запуск: канал #${ch}, зрителей: ${count}`);
 
+    const rate = document.getElementById('viewers-rate').value;
     await fetch('{{ route("admin.tests.viewers.start") }}', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf},
-        const rate  = document.getElementById('viewers-rate').value;
-    body: JSON.stringify({channel: ch, count: parseInt(count), rate: parseInt(rate)})
+        body: JSON.stringify({channel: ch, count: parseInt(count), rate: parseInt(rate)})
     });
 
     // Поллинг статистики каждые 5 сек
